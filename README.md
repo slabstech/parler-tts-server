@@ -1,6 +1,9 @@
 # Parler-TTS-Server
 This repository provides a server with an [OpenAI compatible API](https://platform.openai.com/docs/api-reference/audio/createSpeech) interface for [Parler-TTS](https://github.com/huggingface/parler-tts).
 
+- Download model weights from huggingface
+  - huggingface-cli download ai4bharat/indic-parler-tts
+
 ## Quick Start 
 Docker
 ```bash
