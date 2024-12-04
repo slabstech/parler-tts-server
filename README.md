@@ -4,15 +4,15 @@ This repository provides a server with an [OpenAI compatible API](https://platfo
 ## Quick Start 
 Docker
 ```bash
-docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 fedirz/parler-tts-server
+docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 slabstech/parler-tts-server
 ```
 Using a fine-tuned model. See [main.py](./parler_tts_server/main.py) for configurable options
 ```bash
-docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 --env MODEL="parler-tts/parler-tts-mini-expresso" fedirz/parler-tts-server
+docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 --env MODEL="parler-tts/parler-tts-mini-expresso" slabstech/parler-tts-server
 ```
 Docker Compose
 ```bash
-curl -sO https://raw.githubusercontent.com/fedirz/parler-tts-server/master/compose.yaml
+curl -sO https://raw.githubusercontent.com/sachinsshetty/parler-tts-server/refs/heads/master/compose.yaml
 docker compose up --detach parler-tts-server
 ```
 
