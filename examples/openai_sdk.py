@@ -10,7 +10,7 @@ client = OpenAI()
 
 speech_file_path = Path(__file__).parent / "speech.mp3"
 response = client.audio.speech.create(
-    model="parler-tts/parler-tts-mini-expresso",
+    model="ai4bharat/indic-parler-tts",
     input="Today is a wonderful day to build something people love!",
     voice="Thomas speaks moderately slowly in a sad tone with emphasis and high quality audio.",  # type: ignore
 )

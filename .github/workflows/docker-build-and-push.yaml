@@ -9,7 +9,7 @@ on:
     types: [published]
 
 env:
-  IMAGE_NAME: fedirz/parler-tts-server
+  IMAGE_NAME: slabstech/parler-tts-server
 
 jobs:
   docker:
