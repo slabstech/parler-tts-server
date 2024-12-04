@@ -4,19 +4,27 @@ This repository provides a server with an [OpenAI compatible API](https://platfo
 ## Quick Start 
 Docker
 ```bash
-docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 fedirz/parler-tts-server
+docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 slabstech/parler-tts-server
 ```
 Using a fine-tuned model. See [main.py](./parler_tts_server/main.py) for configurable options
 ```bash
-docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 --env MODEL="parler-tts/parler-tts-mini-expresso" fedirz/parler-tts-server
+docker run --detach --volume ~/.cache/huggingface:/root/.cache/huggingface --publish 8000:8000 --env MODEL="ai4bharat/indic-parler-tts" slabstech/parler-tts-server
 ```
 Docker Compose
 ```bash
-curl -sO https://raw.githubusercontent.com/fedirz/parler-tts-server/master/compose.yaml
+curl -sO https://raw.githubusercontent.com/sachinsshetty/parler-tts-server/refs/heads/master/compose.yaml
 docker compose up --detach parler-tts-server
 ```
 
 ## Usage 
+
+- kannada
+  - curl -s -H "content-type: application/json" localhost:8000/v1/audio/speech -d '{"input": "ಉದ್ಯಾನದಲ್ಲಿ ಮಕ್ಕಳ ಆಟವಾಡುತ್ತಿದ್ದಾರೆ ಮತ್ತು ಪಕ್ಷಿಗಳು ಚಿಲಿಪಿಲಿ ಮಾಡುತ್ತಿವೆ."}' -o audio.mp3
+    
+- hindi
+    -  curl -s -H "content-type: application/json" localhost:8000/v1/audio/speech -d '{"input": "अरे, तुम आज कैसे हो?"}' -o audio.mp3
+
+
 Saving to file
 ```bash
 curl -s -H "content-type: application/json" localhost:8000/v1/audio/speech -d '{"input": "Hey, how are you?"}' -o audio.mp3

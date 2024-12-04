@@ -17,7 +17,7 @@ class ResponseFormat(enum.StrEnum):
 
 class Config(BaseSettings):
     log_level: str = "info"  # env: LOG_LEVEL
-    model: str = "parler-tts/parler-tts-mini-expresso"  # env: MODEL
+    model: str = "ai4bharat/indic-parler-tts"  # env: MODEL
     max_models: int = 1  # env: MAX_MODELS
     lazy_load_model: bool = False  # env: LAZY_LOAD_MODEL
     voice: str = (
