@@ -1,6 +1,6 @@
 import time
 from contextlib import asynccontextmanager
-from typing import Annotated, Any, OrderedDict
+from typing import Annotated, Any, OrderedDict,List
 
 import huggingface_hub
 import soundfile as sf
@@ -10,7 +10,7 @@ from fastapi.responses import FileResponse
 from huggingface_hub.hf_api import ModelInfo
 from openai.types import Model
 from parler_tts import ParlerTTSForConditionalGeneration
-from transformers import AutoTokenizer
+from transformers import AutoTokenizer, AutoFeatureExtractor, set_seed
 
 from parler_tts_server.config import SPEED, ResponseFormat, config
 from parler_tts_server.logger import logger
@@ -23,6 +23,18 @@ else:
     device = "cpu"
     logger.info("CPU will be used for inference")
 torch_dtype = torch.float16 if device != "cpu" else torch.float32
+
+# Check CUDA availability and version
+cuda_available = torch.cuda.is_available()
+cuda_version = torch.version.cuda if cuda_available else None
+if cuda_available and cuda_version is not None:
+    cuda_version_major, cuda_version_minor = map(int, cuda_version.split('.'))
+    cuda_version_float = cuda_version_major + cuda_version_minor / 10.0
+else:
+    cuda_version_float = 0
+
+print(cuda_version)
+print(cuda_version_float)
 
 
 class ModelManager:
@@ -41,31 +53,34 @@ class ModelManager:
             dtype=torch_dtype,
         )
         tokenizer = AutoTokenizer.from_pretrained(model_name)
+        description_tokenizer = AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
 
-        # compile the forward pass
-        #compile_mode = "default" # chose "reduce-overhead" for 3 to 4x speed-up
-        compile_mode = "reduce-overhead"
-        model.generation_config.cache_implementation = "static"
-        model.forward = torch.compile(model.forward, mode=compile_mode)
+        '''
+        if cuda_available and cuda_version_float > 7.1:  # check for triton compiler
+            # compile the forward pass
+            #compile_mode = "default" # chose "reduce-overhead" for 3 to 4x speed-up
+            compile_mode = "reduce-overhead"
+            model.generation_config.cache_implementation = "static"
+            model.forward = torch.compile(model.forward, mode=compile_mode)
 
 
-        # need to set padding max length
-        max_length = 50
-        torch_device = "cuda:0"
+            # need to set padding max length
+            max_length = 50
+            torch_device = "cuda:0"
 
-                # warmup
-        inputs = tokenizer("This is for compilation", return_tensors="pt", padding="max_length", max_length=max_length).to(torch_device)
+                    # warmup
+            inputs = tokenizer("This is for compilation", return_tensors="pt", padding="max_length", max_length=max_length).to(torch_device)
 
-        model_kwargs = {**inputs, "prompt_input_ids": inputs.input_ids, "prompt_attention_mask": inputs.attention_mask, }
+            model_kwargs = {**inputs, "prompt_input_ids": inputs.input_ids, "prompt_attention_mask": inputs.attention_mask, }
 
-        n_steps = 1 if compile_mode == "default" else 2
-        for _ in range(n_steps):
-            _ = model.generate(**model_kwargs)
-
+            n_steps = 1 if compile_mode == "default" else 2
+            for _ in range(n_steps):
+                _ = model.generate(**model_kwargs)
+        '''
         logger.info(
             f"Loaded {model_name} and tokenizer in {time.perf_counter() - start:.2f} seconds"
         )
-        return model, tokenizer
+        return model, tokenizer, description_tokenizer
 
     def get_or_load_model(
         self, model_name: str
@@ -146,13 +161,15 @@ async def generate_audio(
     response_format: Annotated[ResponseFormat, Body()] = config.response_format,
     speed: Annotated[float, Body()] = SPEED,
 ) -> FileResponse:
-    tts, tokenizer = model_manager.get_or_load_model(model)
+    tts, tokenizer,description_tokenizer = model_manager.get_or_load_model(model)
     if speed != SPEED:
         logger.warning(
             "Specifying speed isn't supported by this model. Audio will be generated with the default speed"
         )
     start = time.perf_counter()
-    input_ids = tokenizer(voice, return_tensors="pt").input_ids.to(device)
+    #input_ids = tokenizer(voice, return_tensors="pt").input_ids.to(device)
+    input_ids = description_tokenizer(voice, return_tensors="pt").input_ids.to(device)
+    
     prompt_input_ids = tokenizer(input, return_tensors="pt").input_ids.to(device)
     generation = tts.generate(
         input_ids=input_ids, prompt_input_ids=prompt_input_ids
@@ -166,3 +183,51 @@ async def generate_audio(
     # TODO: use an in-memory file instead of writing to disk
     sf.write(f"out.{response_format}", audio_arr, tts.config.sampling_rate)
     return FileResponse(f"out.{response_format}", media_type=f"audio/{response_format}")
+
+# https://platform.openai.com/docs/api-reference/audio/createSpeech
+@app.post("/v1/audio/speech_batch")
+async def generate_audio_batch(
+    input: Annotated[List[str], Body()],
+    voice: Annotated[str, Body()] = config.voice,
+    model: Annotated[str, Body()] = config.model,
+    response_format: Annotated[ResponseFormat, Body()] = config.response_format,
+    speed: Annotated[float, Body()] = SPEED,
+) -> FileResponse:
+    tts, tokenizer,description_tokenizer = model_manager.get_or_load_model(model)
+    if speed != SPEED:
+        logger.warning(
+            "Specifying speed isn't supported by this model. Audio will be generated with the default speed"
+        )
+    start = time.perf_counter()
+    #input_ids = tokenizer(voice, return_tensors="pt").input_ids.to(device)
+    input_ids = description_tokenizer(voice, return_tensors="pt").input_ids.to(device)
+    
+    prompt_input_ids = tokenizer(input, return_tensors="pt").input_ids.to(device)
+    set_seed(0)
+
+    generation = tts.generate(
+        input_ids=input_ids, 
+        attention_mask=input_ids.attention_mask,
+        prompt_input_ids=prompt_input_ids,
+        prompt_attention_mask=prompt_input_ids.attention_mask,
+        do_sample=True,
+        return_dict_in_generate=True
+    ).to(  # type: ignore
+        torch.float32
+    )
+    audio_files = []
+
+    for i, audio in enumerate(generation.sequences):
+        audio_arr = audio[:generation.audios_length[i]].cpu().numpy().squeeze()
+        file_path = f"out_{i}.{response_format}"
+        sf.write(file_path, audio_arr, tts.config.sampling_rate)
+        audio_files.append(FileResponse(file_path, media_type=f"audio/{response_format}"))
+
+
+    logger.info(
+        f"Took {time.perf_counter() - start:.2f} seconds to generate audio for {len(input.split())} words using {device.upper()}"
+    )
+    # TODO: use an in-memory file instead of writing to disk
+    #sf.write(f"out.{response_format}", audio_arr, tts.config.sampling_rate)
+    #return FileResponse(f"out.{response_format}", media_type=f"audio/{response_format}")
+    return audio_files
