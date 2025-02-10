@@ -203,32 +203,42 @@ async def generate_audio_batch(
         )
     start = time.perf_counter()
     #input_ids = tokenizer(voice, return_tensors="pt").input_ids.to(device)
-    input_ids = description_tokenizer(voice, return_tensors="pt").input_ids.to(device)
-    
-    prompt_input_ids = tokenizer(input, return_tensors="pt").input_ids.to(device)
-    set_seed(0)
+    inputs = description_tokenizer(voice, return_tensors="pt", padding=True).to("cuda")
 
+    prompt = tokenizer(input, return_tensors="pt", padding=True).to("cuda")
+
+    set_seed(0)
     generation = tts.generate(
-        input_ids=input_ids, 
-        attention_mask=input_ids.attention_mask,
-        prompt_input_ids=prompt_input_ids,
-        prompt_attention_mask=prompt_input_ids.attention_mask,
+        input_ids=inputs.input_ids,
+        attention_mask=inputs.attention_mask,
+        prompt_input_ids=prompt.input_ids,
+        prompt_attention_mask=prompt.attention_mask,
         do_sample=True,
-        return_dict_in_generate=True
-    ).to(  # type: ignore
-        torch.float32
+        return_dict_in_generate=True,
     )
+
     audio_files = []
 
     for i, audio in enumerate(generation.sequences):
         audio_arr = audio[:generation.audios_length[i]].cpu().numpy().squeeze()
+        audio_arr = audio_arr.astype('float32')
         file_path = f"out_{i}.{response_format}"
         sf.write(file_path, audio_arr, tts.config.sampling_rate)
         audio_files.append(FileResponse(file_path, media_type=f"audio/{response_format}"))
 
 
+    if isinstance(input, list):
+        input_str = ' '.join(input)
+    else:
+        input_str = input
+
+    ''' TODO - fix conversion
     logger.info(
-        f"Took {time.perf_counter() - start:.2f} seconds to generate audio for {len(input.split())} words using {device.upper()}"
+        f"Took {time.perf_counter() - start:.2f} seconds to generate audio for {len(input_str.split())} words using {device.upper()}"
+    )
+    '''
+    logger.info(
+        f"Took {time.perf_counter() - start:.2f} seconds to generate audio"
     )
     # TODO: use an in-memory file instead of writing to disk
     #sf.write(f"out.{response_format}", audio_arr, tts.config.sampling_rate)
