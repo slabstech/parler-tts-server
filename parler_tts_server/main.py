@@ -27,14 +27,17 @@ torch_dtype = torch.float16 if device != "cpu" else torch.float32
 # Check CUDA availability and version
 cuda_available = torch.cuda.is_available()
 cuda_version = torch.version.cuda if cuda_available else None
-if cuda_available and cuda_version is not None:
-    cuda_version_major, cuda_version_minor = map(int, cuda_version.split('.'))
-    cuda_version_float = cuda_version_major + cuda_version_minor / 10.0
-else:
-    cuda_version_float = 0
 
-print(cuda_version)
-print(cuda_version_float)
+
+if torch.cuda.is_available():
+    device = torch.cuda.current_device()
+    capability = torch.cuda.get_device_capability(device)
+    compute_capability_float = float(f"{capability[0]}.{capability[1]}")
+    print(f"CUDA version: {cuda_version}")
+
+    print(f"CUDA Compute Capability: {compute_capability_float}")
+else:
+    print("CUDA is not available on this system.")
 
 
 class ModelManager:
@@ -55,8 +58,8 @@ class ModelManager:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         description_tokenizer = AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
 
-        '''
-        if cuda_available and cuda_version_float > 7.1:  # check for triton compiler
+        
+        if cuda_available and compute_capability_float > 7.1:  # check for triton compiler
             # compile the forward pass
             #compile_mode = "default" # chose "reduce-overhead" for 3 to 4x speed-up
             compile_mode = "reduce-overhead"
@@ -76,7 +79,7 @@ class ModelManager:
             n_steps = 1 if compile_mode == "default" else 2
             for _ in range(n_steps):
                 _ = model.generate(**model_kwargs)
-        '''
+        
         logger.info(
             f"Loaded {model_name} and tokenizer in {time.perf_counter() - start:.2f} seconds"
         )
@@ -188,7 +191,7 @@ async def generate_audio(
 @app.post("/v1/audio/speech_batch")
 async def generate_audio_batch(
     input: Annotated[List[str], Body()],
-    voice: Annotated[str, Body()] = config.voice,
+    voice: Annotated[List[str], Body()] = config.voice,
     model: Annotated[str, Body()] = config.model,
     response_format: Annotated[ResponseFormat, Body()] = config.response_format,
     speed: Annotated[float, Body()] = SPEED,
