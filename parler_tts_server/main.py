@@ -1,11 +1,12 @@
 import time
 from contextlib import asynccontextmanager
 from typing import Annotated, Any, OrderedDict,List
-
+import zipfile
+import os
 import huggingface_hub
 import soundfile as sf
 import torch
-from fastapi import Body, FastAPI, HTTPException, Response
+from fastapi import Body, FastAPI, HTTPException, Response, BackgroundTasks
 from fastapi.responses import FileResponse
 from huggingface_hub.hf_api import ModelInfo
 from openai.types import Model
@@ -187,6 +188,16 @@ async def generate_audio(
     sf.write(f"out.{response_format}", audio_arr, tts.config.sampling_rate)
     return FileResponse(f"out.{response_format}", media_type=f"audio/{response_format}")
 
+def zip_files(file_paths, zip_filename):
+    with zipfile.ZipFile(zip_filename, 'w') as zipf:
+        for file_path in file_paths:
+            zipf.write(file_path, os.path.basename(file_path))
+
+def cleanup_files(file_paths, zip_filename):
+    for file_path in file_paths:
+        os.remove(file_path)
+    os.remove(zip_filename)
+
 # https://platform.openai.com/docs/api-reference/audio/createSpeech
 @app.post("/v1/audio/speech_batch")
 async def generate_audio_batch(
@@ -217,20 +228,28 @@ async def generate_audio_batch(
         return_dict_in_generate=True,
     )
 
-    audio_files = []
+    # Create a list to hold the paths of the files to be zipped
+    file_paths = []
 
     for i, audio in enumerate(generation.sequences):
         audio_arr = audio[:generation.audios_length[i]].cpu().numpy().squeeze()
         audio_arr = audio_arr.astype('float32')
         file_path = f"out_{i}.{response_format}"
         sf.write(file_path, audio_arr, tts.config.sampling_rate)
-        audio_files.append(FileResponse(file_path, media_type=f"audio/{response_format}"))
+        file_paths.append(file_path)
 
+    # Zip the files
+    zip_filename = "audio_files.zip"
+    zip_files(file_paths, zip_filename)
 
-    if isinstance(input, list):
-        input_str = ' '.join(input)
-    else:
-        input_str = input
+    # Cleanup the temporary files
+    for file_path in file_paths:
+        os.remove(file_path)
+
+    # Return the zip file
+    
+      # Register the cleanup task
+    #background_tasks.add_task(cleanup_files, file_paths, zip_filename)
 
     ''' TODO - fix conversion
     logger.info(
@@ -243,4 +262,4 @@ async def generate_audio_batch(
     # TODO: use an in-memory file instead of writing to disk
     #sf.write(f"out.{response_format}", audio_arr, tts.config.sampling_rate)
     #return FileResponse(f"out.{response_format}", media_type=f"audio/{response_format}")
-    return audio_files
+    return FileResponse(zip_filename, media_type="application/zip")

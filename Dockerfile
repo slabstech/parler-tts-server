@@ -1,16 +1,14 @@
-FROM pytorch/pytorch:2.6.0-cuda12.6-cudnn9-runtime
+FROM pytorch/pytorch:2.5.1-cuda12.4-cudnn9-runtime
 # hadolint ignore=DL3008,DL3015,DL4006
 RUN apt-get update && \
-    apt-get install -y build-essential gcc g++ cmake git curl software-properties-common 
-RUN add-apt-repository ppa:deadsnakes/ppa && \
+    apt-get install -y git curl software-properties-common && \
+    add-apt-repository ppa:deadsnakes/ppa && \
     apt-get update && \
     DEBIAN_FRONTEND=noninteractive apt-get install -y python3.12 python3.12-distutils && \
     curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /root/parler-tts-server
-RUN export CC=/usr/bin/gcc
-RUN export CXX=/usr/bin/g++
 RUN pip3.12 install --no-cache-dir --no-deps git+https://github.com/huggingface/parler-tts.git 
 COPY ./model_requirements.txt .
 RUN pip3.12 install --no-cache-dir -r model_requirements.txt
