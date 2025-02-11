@@ -59,6 +59,28 @@ class ModelManager:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         description_tokenizer = AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
 
+        
+        if cuda_available and compute_capability_float > 7.1:  # check for triton compiler
+            # compile the forward pass
+            #compile_mode = "default" # chose "reduce-overhead" for 3 to 4x speed-up
+            compile_mode = "reduce-overhead"
+            model.generation_config.cache_implementation = "static"
+            model.forward = torch.compile(model.forward, mode=compile_mode)
+
+
+            # need to set padding max length
+            max_length = 50
+            torch_device = "cuda:0"
+
+                    # warmup
+            inputs = tokenizer("This is for compilation", return_tensors="pt", padding="max_length", max_length=max_length).to(torch_device)
+
+            model_kwargs = {**inputs, "prompt_input_ids": inputs.input_ids, "prompt_attention_mask": inputs.attention_mask, }
+
+            n_steps = 1 if compile_mode == "default" else 2
+            for _ in range(n_steps):
+                _ = model.generate(**model_kwargs)
+        
         logger.info(
             f"Loaded {model_name} and tokenizer in {time.perf_counter() - start:.2f} seconds"
         )
