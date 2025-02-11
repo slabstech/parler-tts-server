@@ -192,9 +192,9 @@ async def generate_audio_batch(
         )
     start = time.perf_counter()
     #input_ids = tokenizer(voice, return_tensors="pt").input_ids.to(device)
-    inputs = description_tokenizer(voice, return_tensors="pt", padding=True).to("cuda")
+    inputs = description_tokenizer(voice, return_tensors="pt", padding=True).to(device)
 
-    prompt = tokenizer(input, return_tensors="pt", padding=True).to("cuda")
+    prompt = tokenizer(input, return_tensors="pt", padding=True).to(device)
 
     set_seed(0)
     generation = tts.generate(
