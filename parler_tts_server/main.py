@@ -210,10 +210,11 @@ async def generate_audio_batch(
 
     # Prepare inputs for the model
     all_chunks = []
-    all_descriptions = voice
+    all_descriptions = []
     for i, text in enumerate(input):
         chunks = chunk_text(text, chunk_size)
         all_chunks.extend(chunks)
+        all_descriptions.extend([voice[i]] * len(chunks))
         
     description_inputs = description_tokenizer(all_descriptions, return_tensors="pt", padding=True).to("cuda")
     prompts = tokenizer(all_chunks, return_tensors="pt", padding=True).to("cuda")
@@ -236,6 +237,7 @@ async def generate_audio_batch(
         chunk_audios = []
         for j in range(len(chunks)):
             audio_arr = generation.sequences[current_index][:generation.audios_length[current_index]].cpu().numpy().squeeze()
+            audio_arr = audio_arr.astype('float32')
             chunk_audios.append(audio_arr)
             current_index += 1
         combined_audio = np.concatenate(chunk_audios)
@@ -243,10 +245,9 @@ async def generate_audio_batch(
 
     # Save the final audio outputs
     file_paths = []
-    response_format = 'wav'
     for i, audio in enumerate(audio_outputs):
         file_path = f"out_{i}.{response_format}"
-        sf.write(file_path, audio, model.config.sampling_rate)
+        sf.write(file_path, audio, tts.config.sampling_rate)
         print(f"Processed chunk {i+1}/{length_of_input_text} and saved to {file_path}")
         file_paths.append(file_path)
 
