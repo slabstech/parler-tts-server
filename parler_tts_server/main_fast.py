@@ -12,7 +12,7 @@ from huggingface_hub.hf_api import ModelInfo
 from openai.types import Model
 from parler_tts import ParlerTTSForConditionalGeneration
 from transformers import AutoTokenizer, AutoFeatureExtractor, set_seed
-import numpy as np
+
 from parler_tts_server.config import SPEED, ResponseFormat, config
 from parler_tts_server.logger import logger
 
@@ -59,6 +59,28 @@ class ModelManager:
         tokenizer = AutoTokenizer.from_pretrained(model_name)
         description_tokenizer = AutoTokenizer.from_pretrained(model.config.text_encoder._name_or_path)
 
+        
+        if cuda_available and compute_capability_float > 7.1:  # check for triton compiler
+            # compile the forward pass
+            #compile_mode = "default" # chose "reduce-overhead" for 3 to 4x speed-up
+            compile_mode = "reduce-overhead"
+            model.generation_config.cache_implementation = "static"
+            model.forward = torch.compile(model.forward, mode=compile_mode)
+
+
+            # need to set padding max length
+            max_length = 50
+            torch_device = "cuda:0"
+
+                    # warmup
+            inputs = tokenizer("This is for compilation", return_tensors="pt", padding="max_length", max_length=max_length).to(torch_device)
+
+            model_kwargs = {**inputs, "prompt_input_ids": inputs.input_ids, "prompt_attention_mask": inputs.attention_mask, }
+
+            n_steps = 1 if compile_mode == "default" else 2
+            for _ in range(n_steps):
+                _ = model.generate(**model_kwargs)
+        
         logger.info(
             f"Loaded {model_name} and tokenizer in {time.perf_counter() - start:.2f} seconds"
         )
@@ -176,16 +198,6 @@ def cleanup_files(file_paths, zip_filename):
         os.remove(file_path)
     os.remove(zip_filename)
 
-
-
-# Define a function to split text into smaller chunks
-def chunk_text(text, chunk_size):
-    words = text.split()
-    chunks = []
-    for i in range(0, len(words), chunk_size):
-        chunks.append(' '.join(words[i:i + chunk_size]))
-    return chunks
-
 # https://platform.openai.com/docs/api-reference/audio/createSpeech
 @app.post("/v1/audio/speech_batch")
 async def generate_audio_batch(
@@ -202,55 +214,29 @@ async def generate_audio_batch(
         )
     start = time.perf_counter()
     #input_ids = tokenizer(voice, return_tensors="pt").input_ids.to(device)
+    inputs = description_tokenizer(voice, return_tensors="pt", padding=True).to(device)
 
-    length_of_input_text = len(input)
-
-    # Set chunk size for text processing
-    chunk_size = 15  # Adjust this value based on your needs
-
-    # Prepare inputs for the model
-    all_chunks = []
-    all_descriptions = []
-    for i, text in enumerate(input):
-        chunks = chunk_text(text, chunk_size)
-        all_chunks.extend(chunks)
-        all_descriptions.extend([voice[i]] * len(chunks))
-        
-    description_inputs = description_tokenizer(all_descriptions, return_tensors="pt", padding=True).to("cuda")
-    prompts = tokenizer(all_chunks, return_tensors="pt", padding=True).to("cuda")
+    prompt = tokenizer(input, return_tensors="pt", padding=True).to(device)
 
     set_seed(0)
     generation = tts.generate(
-        input_ids=description_inputs.input_ids,
-        attention_mask=description_inputs.attention_mask,
-        prompt_input_ids=prompts.input_ids,
-        prompt_attention_mask=prompts.attention_mask,
+        input_ids=inputs.input_ids,
+        attention_mask=inputs.attention_mask,
+        prompt_input_ids=prompt.input_ids,
+        prompt_attention_mask=prompt.attention_mask,
         do_sample=True,
         return_dict_in_generate=True,
     )
 
-    # Concatenate audio outputs
-    audio_outputs = []
-    current_index = 0
-    for i, text in enumerate(input):
-        chunks = chunk_text(text, chunk_size)
-        chunk_audios = []
-        for j in range(len(chunks)):
-            audio_arr = generation.sequences[current_index][:generation.audios_length[current_index]].cpu().numpy().squeeze()
-            audio_arr = audio_arr.astype('float32')
-            chunk_audios.append(audio_arr)
-            current_index += 1
-        combined_audio = np.concatenate(chunk_audios)
-        audio_outputs.append(combined_audio)
-
-    # Save the final audio outputs
+    # Create a list to hold the paths of the files to be zipped
     file_paths = []
-    for i, audio in enumerate(audio_outputs):
-        file_path = f"out_{i}.{response_format}"
-        sf.write(file_path, audio, tts.config.sampling_rate)
-        print(f"Processed chunk {i+1}/{length_of_input_text} and saved to {file_path}")
-        file_paths.append(file_path)
 
+    for i, audio in enumerate(generation.sequences):
+        audio_arr = audio[:generation.audios_length[i]].cpu().numpy().squeeze()
+        audio_arr = audio_arr.astype('float32')
+        file_path = f"out_{i}.{response_format}"
+        sf.write(file_path, audio_arr, tts.config.sampling_rate)
+        file_paths.append(file_path)
 
     # Zip the files
     zip_filename = "audio_files.zip"
