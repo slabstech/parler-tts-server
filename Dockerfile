@@ -9,6 +9,10 @@ RUN apt-get update && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
 WORKDIR /root/parler-tts-server
+RUN apt-get update && \
+    apt-get install -y build-essential gcc g++ 
+RUN export CC=/usr/bin/gcc
+RUN export CXX=/usr/bin/g++
 RUN pip3.12 install --no-cache-dir --no-deps git+https://github.com/huggingface/parler-tts.git 
 COPY ./model_requirements.txt .
 RUN pip3.12 install --no-cache-dir -r model_requirements.txt
