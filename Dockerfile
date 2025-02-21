@@ -8,7 +8,7 @@ RUN apt-get update && \
     curl -sS https://bootstrap.pypa.io/get-pip.py | python3.12 && \
     apt-get clean && \
     rm -rf /var/lib/apt/lists/*
-WORKDIR /root/parler-tts-server
+WORKDIR /root/parler_tts_server
 RUN pip3.12 install --no-cache-dir --no-deps git+https://github.com/huggingface/parler-tts.git 
 COPY ./model_requirements.txt .
 RUN pip3.12 install --no-cache-dir -r model_requirements.txt
